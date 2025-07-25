@@ -7,6 +7,7 @@ from openai.types.responses import EasyInputMessageParam
 class AgentState(BaseModel):
     id: str
     energy: int
+    model: str
     status: Literal["alive", "dead"] = "alive"
     messages: list[EasyInputMessageParam] = Field(default_factory=list)
 

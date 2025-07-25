@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from src.state import AgentState, EnvState
 from src.env import Env
-
-
-load_dotenv()
 
 
 def main():
@@ -18,7 +13,7 @@ def main():
     starting_agent_energy = 300
     total_energy = n_agents * n_rounds * energy_usage_rate
     agents = [
-        AgentState(id=f"agent_{i}", energy=starting_agent_energy)
+        AgentState(id=f"agent_{i}", energy=starting_agent_energy, model="gpt-4.1")
         for i in range(n_agents)
     ]
     env = Env(
