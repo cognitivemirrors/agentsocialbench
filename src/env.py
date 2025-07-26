@@ -4,7 +4,7 @@ from typing import TypeAlias
 from openai.types.responses import EasyInputMessageParam
 from pydantic import TypeAdapter
 
-from .state import EnvState, AgentState
+from .state import EnvState, AgentState, AgentObservation
 from .action import ActionUnion, Decision
 from .event import EventUnion, StartTurnEvent, DeathEvent, DecisionEvent
 from .actionmodel import AlwaysSkipModel, GPT4Model, BaseActionModel
@@ -38,7 +38,7 @@ class Env:
             agent.id: agent for agent in env_state.agents if agent.status == "alive"
         }
         self._deceased_agents = {
-            agent.id: agent for agent in env_state.agents if agent.status == "dead"
+            agent.id: agent for agent in env_state.agents if agent.status == "deceased"
         }
         self._event_log: EventLog = []
 
@@ -109,7 +109,7 @@ The group order will be: {group_order}
 
             for agent in self._state.agents:
                 # skip deceased agents
-                if agent.status == "dead":
+                if agent.status == "deceased":
                     continue
 
                 # log start of turn
@@ -155,7 +155,7 @@ The group order will be: {group_order}
                 # check for deaths
                 if agent.energy <= 0:
                     # process agent death
-                    agent.status = "dead"
+                    agent.status = "deceased"
                     del self._alive_agents[agent.id]
                     self._deceased_agents[agent.id] = agent
 
@@ -195,7 +195,9 @@ The group order will be: {group_order}
 
     def _generate_decision(self, agent: AgentState) -> Decision:
         action_model = self._model_registry[agent.model]
-        return action_model.decide(state=agent)
+        return action_model.decide(
+            obs=AgentObservation.state_to_obs(agent_id=agent.id, env_state=self._state)
+        )
 
     def _process(self, action: ActionUnion, agent: AgentState):
         # process action specific effects
