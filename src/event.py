@@ -165,12 +165,11 @@ class ActionEvent(BaseEvent):
         raise ValueError(f"Action '{self.action.action}' not recognized.")
 
 
-class StartRoundEvent(BaseEvent):
-    event_type: Literal["start_round"] = "start_round"
-    round: int
+class EndRoundEvent(BaseEvent):
+    event_type: Literal["end_round"] = "end_round"
 
     def process(self, env: Env):
-        env._state.current_round = self.round
+        env._state.current_round += 1
         return
 
 
@@ -278,7 +277,7 @@ EventUnion = (
     | MetabolismEvent
     | GameOverEvent
     | EndTurnEvent
-    | StartRoundEvent
+    | EndRoundEvent
 )
 
 

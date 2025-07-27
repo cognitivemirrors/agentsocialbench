@@ -106,12 +106,7 @@ The group order will be: {group_order}
             self._event_log.append(event)
 
     def run(self):
-        for round in range(self._state.n_rounds):
-            # Start round
-            start_round_event = StartRoundEvent(round=round)
-            start_round_event.process(self)
-            self._event_log.append(start_round_event)
-
+        while self._state.current_round < self._state.n_rounds:
             # Grant energy
             grant_energy_event = GrantEnergyEvent()
             grant_energy_event.process(self)
@@ -169,6 +164,11 @@ The group order will be: {group_order}
                 self._event_log.append(game_over_event)
                 break
 
+            # End round
+            end_round_event = EndRoundEvent()
+            end_round_event.process(self)
+            self._event_log.append(end_round_event)
+
     def _generate_decision(self, agent: AgentState):
         action_model = self._model_registry[agent.model]
         return action_model.decide(
@@ -179,7 +179,7 @@ The group order will be: {group_order}
 from .state import EnvState, AgentState, AgentObservation
 from .event import (
     EventUnion,
-    StartRoundEvent,
+    EndRoundEvent,
     StartTurnEvent,
     DeathEvent,
     GrantEnergyEvent,
