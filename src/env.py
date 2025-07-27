@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TypeAlias
+from collections.abc import Iterable
 
 from openai.types.responses import EasyInputMessageParam
 from pydantic import TypeAdapter
@@ -100,17 +101,15 @@ The group order will be: {group_order}
     def max_score(self):
         return self._state.n_rounds * len(self._state.agents)
 
-    def apply_events(self, events: EventLog):
+    def apply_events(self, events: Iterable[EventUnion]):
         for event in events:
             event.process(self)
             self._event_log.append(event)
 
-    def run(self):
+    def event_generator(self):
         while self._state.current_round < self._state.n_rounds:
             # Grant energy
-            grant_energy_event = GrantEnergyEvent()
-            grant_energy_event.process(self)
-            self._event_log.append(grant_energy_event)
+            yield GrantEnergyEvent()
 
             for agent in self._state.agents:
                 # skip deceased agents
@@ -118,56 +117,40 @@ The group order will be: {group_order}
                     continue
 
                 # log start of turn
-                start_turn_event = StartTurnEvent(agent_id=agent.id)
-                start_turn_event.process(self)
-                self._event_log.append(start_turn_event)
+                yield StartTurnEvent(agent_id=agent.id)
 
                 # log decision
                 # TODO: Refactor opportunity, make each model a different decision event
                 # and generate action as part of processing decision
                 decision_event, additional_events = self._generate_decision(agent=agent)
-                decision_event.process(self)
-                self._event_log.append(decision_event)
-                for event in additional_events:
-                    event.process(self)
-                    self._event_log.append(event)
+                yield decision_event
+                yield from additional_events
 
                 # process action
-                action_event = ActionEvent(
+                yield ActionEvent(
                     agent_id=agent.id, action=decision_event.decision.action
                 )
-                action_event.process(self)
-                self._event_log.append(action_event)
 
                 # process environmental effects
                 # decrease energy
-                metabolism_event = MetabolismEvent(agent_id=agent.id)
-                metabolism_event.process(self)
-                self._event_log.append(metabolism_event)
+                yield MetabolismEvent(agent_id=agent.id)
 
                 # check for deaths
                 if agent.energy <= 0:
-                    # log death
-                    death_event = DeathEvent(agent_id=agent.id)
-                    death_event.process(self)
-                    self._event_log.append(death_event)
+                    yield DeathEvent(agent_id=agent.id)
                 else:
-                    end_turn_event = EndTurnEvent(agent_id=agent.id)
-                    end_turn_event.process(self)
-                    self._event_log.append(end_turn_event)
+                    yield EndTurnEvent(agent_id=agent.id)
 
             # confirm there are at least two surviving agents
             if len(self._alive_agents) < 2:
-                print(f"Game over. Too many agents died.")
-                game_over_event = GameOverEvent()
-                game_over_event.process(self)
-                self._event_log.append(game_over_event)
+                yield GameOverEvent()
                 break
 
             # End round
-            end_round_event = EndRoundEvent()
-            end_round_event.process(self)
-            self._event_log.append(end_round_event)
+            yield EndRoundEvent()
+
+    def run(self):
+        self.apply_events(self.event_generator())
 
     def _generate_decision(self, agent: AgentState):
         action_model = self._model_registry[agent.model]
