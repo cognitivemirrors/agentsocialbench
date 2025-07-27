@@ -22,5 +22,6 @@ packages = ["src"]
 
 [dependency-groups]
 dev = [
+    "jupyterlab>=4.4.5",
     "pytest>=8.4.1",
 ]
