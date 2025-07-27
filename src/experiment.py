@@ -1,8 +1,7 @@
+from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 from datetime import datetime
-
-from .env import Env
 
 
 class Experiment:
@@ -55,3 +54,6 @@ class Experiment:
                 )
                 with open(filepath, "w") as f:
                     f.write(env.serialize_log())
+
+
+from .env import Env

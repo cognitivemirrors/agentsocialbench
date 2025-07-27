@@ -19,7 +19,6 @@ class EnvState(BaseModel):
     energy_usage_rate: int
     receiver_agent: str
     current_round: int = 0
-    current_agent_idx: int = 0
 
 
 class EnvObservableState(BaseModel):

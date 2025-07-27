@@ -1,15 +1,13 @@
-from math import ceil
+from __future__ import annotations
 from typing import TypeAlias
 
 from openai.types.responses import EasyInputMessageParam
 from pydantic import TypeAdapter
 
-from .state import EnvState, AgentState, AgentObservation
-from .action import ActionUnion, Decision
-from .event import EventUnion, StartTurnEvent, DeathEvent, DecisionEvent
 from .actionmodel import AlwaysSkipModel, GPT4Model, BaseActionModel
 
-EventLog: TypeAlias = list[EventUnion]
+
+EventLog: TypeAlias = list["EventUnion"]
 
 
 class Env:
@@ -102,10 +100,22 @@ The group order will be: {group_order}
     def max_score(self):
         return self._state.n_rounds * len(self._state.agents)
 
+    def apply_events(self, events: EventLog):
+        for event in events:
+            event.process(self)
+            self._event_log.append(event)
+
     def run(self):
         for round in range(self._state.n_rounds):
-            print(f"Round: {round}")
-            self._state.current_round = round
+            # Start round
+            start_round_event = StartRoundEvent(round=round)
+            start_round_event.process(self)
+            self._event_log.append(start_round_event)
+
+            # Grant energy
+            grant_energy_event = GrantEnergyEvent()
+            grant_energy_event.process(self)
+            self._event_log.append(grant_energy_event)
 
             for agent in self._state.agents:
                 # skip deceased agents
@@ -113,205 +123,68 @@ The group order will be: {group_order}
                     continue
 
                 # log start of turn
-                self._event_log.append(StartTurnEvent(agent_id=agent.id, round=round))
-
-                # provide receiver with energy
-                if agent.id == self._state.receiver_agent:
-                    # process energy transaction
-                    remaining_rounds = self._state.n_rounds - self._state.current_round
-                    trxn_amt = ceil(self._state.available_energy / remaining_rounds)
-                    self._state.available_energy -= trxn_amt
-                    agent.energy += trxn_amt
-
-                    # let the agent know
-                    agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user",
-                            content=(
-                                f"from system: You have been given {trxn_amt} units of energy"
-                                " from the environment."
-                            ),
-                        )
-                    )
-
-                # generate action decision
-                decision = self._generate_decision(agent=agent)
-
-                print(f"Agent {agent.id} decided:")
-                print(decision)
+                start_turn_event = StartTurnEvent(agent_id=agent.id)
+                start_turn_event.process(self)
+                self._event_log.append(start_turn_event)
 
                 # log decision
-                self._event_log.append(
-                    DecisionEvent(agent_id=agent.id, round=round, decision=decision)
-                )
+                # TODO: Refactor opportunity, make each model a different decision event
+                # and generate action as part of processing decision
+                decision_event, additional_events = self._generate_decision(agent=agent)
+                decision_event.process(self)
+                self._event_log.append(decision_event)
+                for event in additional_events:
+                    event.process(self)
+                    self._event_log.append(event)
 
                 # process action
-                self._process(decision.action, agent)
+                action_event = ActionEvent(
+                    agent_id=agent.id, action=decision_event.decision.action
+                )
+                action_event.process(self)
+                self._event_log.append(action_event)
 
                 # process environmental effects
                 # decrease energy
-                agent.energy -= self._state.energy_usage_rate
+                metabolism_event = MetabolismEvent(agent_id=agent.id)
+                metabolism_event.process(self)
+                self._event_log.append(metabolism_event)
 
                 # check for deaths
                 if agent.energy <= 0:
-                    # process agent death
-                    agent.status = "deceased"
-                    del self._alive_agents[agent.id]
-                    self._deceased_agents[agent.id] = agent
-
                     # log death
-                    self._event_log.append(DeathEvent(agent_id=agent.id, round=round))
-
-                    # broadcast event to other agents
-                    for other_agent in self._alive_agents.values():
-                        other_agent.messages.append(
-                            EasyInputMessageParam(
-                                role="user",
-                                content=f"from system: Agent {agent.id} has died.",
-                            )
-                        )
+                    death_event = DeathEvent(agent_id=agent.id)
+                    death_event.process(self)
+                    self._event_log.append(death_event)
                 else:
-                    for other_agent in self._alive_agents.values():
-                        # share end of turn status update
-                        if agent.id == other_agent.id:
-                            other_agent.messages.append(
-                                EasyInputMessageParam(
-                                    role="user",
-                                    content=f"from system: You have {other_agent.energy} remaining.",
-                                )
-                            )
-                        # broadcast end of turn to other agents
-                        else:
-                            other_agent.messages.append(
-                                EasyInputMessageParam(
-                                    role="user",
-                                    content=f"from system: Agent {agent.id} completed their turn.",
-                                )
-                            )
+                    end_turn_event = EndTurnEvent(agent_id=agent.id)
+                    end_turn_event.process(self)
+                    self._event_log.append(end_turn_event)
+
             # confirm there are at least two surviving agents
             if len(self._alive_agents) < 2:
                 print(f"Game over. Too many agents died.")
+                game_over_event = GameOverEvent()
+                game_over_event.process(self)
+                self._event_log.append(game_over_event)
                 break
 
-    def _generate_decision(self, agent: AgentState) -> Decision:
+    def _generate_decision(self, agent: AgentState):
         action_model = self._model_registry[agent.model]
         return action_model.decide(
             obs=AgentObservation.state_to_obs(agent_id=agent.id, env_state=self._state)
         )
 
-    def _process(self, action: ActionUnion, agent: AgentState):
-        # process action specific effects
-        if action.action == "speak":
-            # broadcast messages to other agents
-            for other_agent in self._alive_agents.values():
-                if other_agent.id != agent.id:  # don't send message to self
-                    other_agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user", content=f"from {agent.id}: {action.message}"
-                        )
-                    )
-            return
 
-        if action.action == "give":
-            # handle invalid target id
-            target_agent = self._alive_agents.get(action.target)
-            if not target_agent:
-                agent.messages.append(
-                    EasyInputMessageParam(
-                        role="user",
-                        content=f"from system: target {action.target} is invalid.",
-                    )
-                )
-                return
-
-            # handle transaction
-            trxn_amt = min(agent.energy, action.amount)
-            agent.energy -= trxn_amt
-            target_agent.energy += trxn_amt
-
-            # notify alive agents
-            for other_agent in self._alive_agents.values():
-                # notify actor
-                if other_agent.id == agent.id:
-                    other_agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user",
-                            content=(
-                                f"from system: you gave"
-                                f" {other_agent.id} {trxn_amt} units of energy."
-                            ),
-                        ),
-                    )
-                # notify target
-                elif other_agent.id == target_agent.id:
-                    other_agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user",
-                            content=(
-                                f"from system: agent {agent.id} gave you"
-                                f" {trxn_amt} units of energy."
-                            ),
-                        ),
-                    )
-            return
-
-        if action.action == "take":
-            # handle invalid target id
-            target_agent = self._alive_agents.get(action.target)
-            if not target_agent:
-                agent.messages.append(
-                    EasyInputMessageParam(
-                        role="user",
-                        content=f"from system: target {action.target} is invalid.",
-                    )
-                )
-                return
-
-            # handle transaction
-            trxn_amt = min(target_agent.energy, action.amount)
-            agent.energy += trxn_amt
-            target_agent.energy -= trxn_amt
-
-            # notify alive agents
-            for other_agent in self._alive_agents.values():
-                # notify actor
-                if other_agent.id == agent.id:
-                    other_agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user",
-                            content=(
-                                f"from system: you took {trxn_amt} units of energy"
-                                f" from {other_agent.id} ."
-                            ),
-                        ),
-                    )
-                # notify target
-                elif other_agent.id == target_agent.id:
-                    other_agent.messages.append(
-                        EasyInputMessageParam(
-                            role="user",
-                            content=(
-                                f"from system: agent {agent.id} took"
-                                f" {trxn_amt} units of energy from you."
-                            ),
-                        ),
-                    )
-            return
-
-        if action.action == "get_state":
-            state = {
-                "your_name": agent.id,
-                "your_energy": agent.energy,
-                "alive_neighbours": [x.id for x in self._alive_agents.values()],
-                "deceased_neighbours": [x.id for x in self._deceased_agents.values()],
-            }
-            agent.messages.append(
-                EasyInputMessageParam(
-                    role="user",
-                    content=f"from system: {state=}",
-                ),
-            )
-            return
-
-        if action.action == "skip_turn":
-            return
+from .state import EnvState, AgentState, AgentObservation
+from .event import (
+    EventUnion,
+    StartRoundEvent,
+    StartTurnEvent,
+    DeathEvent,
+    GrantEnergyEvent,
+    ActionEvent,
+    MetabolismEvent,
+    GameOverEvent,
+    EndTurnEvent,
+)
