@@ -48,6 +48,21 @@ class DecisionEvent(BaseEvent):
         return
 
 
+class GPT4DecisionEvent(BaseEvent):
+    event_type: Literal["gpt4_decision"] = "gpt4_decision"
+    agent_id: str
+    decision: Decision
+    response_txt: str
+
+    def process(self, env: Env):
+        agent = env._alive_agents.get(self.agent_id)
+        if agent:
+            agent.messages.append(
+                EasyInputMessageParam(role="assistant", content=self.response_txt)
+            )
+        return
+
+
 class ActionEvent(BaseEvent):
     event_type: Literal["action"] = "action"
     agent_id: str
@@ -231,24 +246,6 @@ class DeathEvent(BaseEvent):
         return
 
 
-class MessageEvent(BaseEvent):
-    event_type: Literal["message"] = "message"
-    agent_id: str
-    role: Literal["user", "assistant", "system"]
-    content: str
-
-    def process(self, env: Env):
-        agent = env._alive_agents.get(self.agent_id)
-        if agent:
-            agent.messages.append(
-                EasyInputMessageParam(
-                    role=self.role,
-                    content=self.content,
-                )
-            )
-        return
-
-
 class MetabolismEvent(BaseEvent):
     event_type: Literal["metabolism"] = "metabolism"
     agent_id: str
@@ -269,10 +266,10 @@ class GameOverEvent(BaseEvent):
 
 EventUnion = (
     DecisionEvent
+    | GPT4DecisionEvent
     | StartTurnEvent
     | DeathEvent
     | GrantEnergyEvent
-    | MessageEvent
     | ActionEvent
     | MetabolismEvent
     | GameOverEvent

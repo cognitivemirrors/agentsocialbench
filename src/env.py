@@ -120,11 +120,8 @@ The group order will be: {group_order}
                 yield StartTurnEvent(agent_id=agent.id)
 
                 # log decision
-                # TODO: Refactor opportunity, make each model a different decision event
-                # and generate action as part of processing decision
-                decision_event, additional_events = self._generate_decision(agent=agent)
+                decision_event = self._generate_decision(agent=agent)
                 yield decision_event
-                yield from additional_events
 
                 # process action
                 yield ActionEvent(
