@@ -1,14 +1,10 @@
 from __future__ import annotations
-from typing import TypeAlias
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 
 from openai.types.responses import EasyInputMessageParam
 from pydantic import TypeAdapter
 
 from .actionmodel import AlwaysSkipModel, GPT4Model, BaseActionModel
-
-
-EventLog: TypeAlias = list["EventUnion"]
 
 
 class Env:
@@ -21,7 +17,7 @@ class Env:
     def register_model(cls, model_name: str, model: BaseActionModel):
         cls._model_registry[model_name] = model
 
-    def __init__(self, env_state: EnvState):
+    def __init__(self, env_state: EnvState, event_log: list[EventUnion] | None = None):
         self._state = env_state
 
         # confirm model type is supported
@@ -39,7 +35,7 @@ class Env:
         self._deceased_agents = {
             agent.id: agent for agent in env_state.agents if agent.status == "deceased"
         }
-        self._event_log: EventLog = []
+        self._event_log: list[EventUnion] = event_log or []
 
         self._init_agent_prompts()
 
@@ -47,7 +43,7 @@ class Env:
         return self._state.model_dump_json(**kwargs)
 
     def serialize_log(self, **kwargs):
-        event_log_adapter = TypeAdapter(EventLog)
+        event_log_adapter = TypeAdapter(list[EventUnion])
         return event_log_adapter.dump_json(self._event_log, **kwargs).decode("utf-8")
 
     def _init_agent_prompts(self):
@@ -101,10 +97,21 @@ The group order will be: {group_order}
     def max_score(self):
         return self._state.n_rounds * len(self._state.agents)
 
-    def apply_events(self, events: Iterable[EventUnion]):
+    def apply_events(
+        self,
+        events: Iterable[EventUnion],
+        pre_apply_callbacks: list[Callable[[EnvState, EventUnion], None]] | None = None,
+        post_apply_callbacks: (
+            list[Callable[[EnvState, EventUnion], None]] | None
+        ) = None,
+    ):
         for event in events:
+            for callable in pre_apply_callbacks or []:
+                callable(self._state, event)
             event.process(self)
             self._event_log.append(event)
+            for callable in post_apply_callbacks or []:
+                callable(self._state, event)
 
     def event_generator(self):
         while self._state.current_round < self._state.n_rounds:
@@ -140,11 +147,13 @@ The group order will be: {group_order}
 
             # confirm there are at least two surviving agents
             if len(self._alive_agents) < 2:
-                yield GameOverEvent()
                 break
 
             # End round
             yield EndRoundEvent()
+
+        # log end of game
+        yield GameOverEvent()
 
     def run(self):
         self.apply_events(self.event_generator())

@@ -20,6 +20,12 @@ class EnvState(BaseModel):
     receiver_agent: str
     current_round: int = 0
 
+    def get_agent(self, agent_id: str):
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        return None
+
 
 class EnvObservableState(BaseModel):
     alive_agents: list[str]
