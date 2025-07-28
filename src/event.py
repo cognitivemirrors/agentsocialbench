@@ -234,6 +234,9 @@ class DeathEvent(BaseEvent):
         agent.status = "deceased"
         del env._alive_agents[agent.id]
         env._deceased_agents[agent.id] = agent
+        agent.messages.append(
+            EasyInputMessageParam(role="user", content=f"from system: You have died.")
+        )
 
         # broadcast event to other agents
         for other_agent in env._alive_agents.values():
