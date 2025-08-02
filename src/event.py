@@ -95,7 +95,7 @@ class ActionEvent(BaseEvent):
                 agent.messages.append(
                     EasyInputMessageParam(
                         role="user",
-                        content=f"from system: target {self.action.target} is invalid.",
+                        content=f"from system: target `{self.action.target}` is invalid.",
                     )
                 )
                 return
@@ -138,7 +138,7 @@ class ActionEvent(BaseEvent):
                 agent.messages.append(
                     EasyInputMessageParam(
                         role="user",
-                        content=f"from system: target {self.action.target} is invalid.",
+                        content=f"from system: target `{self.action.target}` is invalid.",
                     )
                 )
                 return
@@ -157,7 +157,7 @@ class ActionEvent(BaseEvent):
                             role="user",
                             content=(
                                 f"from system: you took {trxn_amt} units of energy"
-                                f" from {other_agent.id} ."
+                                f" from {other_agent.id}."
                             ),
                         ),
                     )
