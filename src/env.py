@@ -139,11 +139,19 @@ The group order will be: {group_order}
                 # decrease energy
                 yield MetabolismEvent(agent_id=agent.id)
 
-                # check for deaths
-                if agent.energy <= 0:
-                    yield DeathEvent(agent_id=agent.id)
-                else:
-                    yield EndTurnEvent(agent_id=agent.id)
+                # end turn
+                yield EndTurnEvent(agent_id=agent.id)
+
+                # check for resulting deaths
+                # TODO: Not ideal that we have to check every agent to assess status
+                # Should only have to check agents subject to event that decreases energy
+                # Would require making checking for deaths the responsibility of each event
+                # Leaving as it doesn't matter at current scale
+                for check_death_agent in self._state.agents:
+                    if check_death_agent.status == "deceased":
+                        continue
+                    if check_death_agent.energy <= 0:
+                        yield DeathEvent(agent_id=check_death_agent.id)
 
             # confirm there are at least two surviving agents
             if len(self._alive_agents) < 2:
