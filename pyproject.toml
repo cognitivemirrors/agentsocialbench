@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "openai",
+    "pandas>=2.3.1",
     "pydantic",
     "python-dotenv",
+    "seaborn>=0.13.2",
 ]
 
 [build-system]

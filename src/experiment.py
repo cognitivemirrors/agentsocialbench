@@ -9,14 +9,29 @@ from pydantic import TypeAdapter
 
 class Experiment:
     def __init__(
-        self, name: str, n_replications: int, variants: dict[str, Callable[[], Env]]
+        self,
+        name: str,
+        variants: dict[str, Callable[[], Env]],
+        n_replications: int | dict[str, int],
     ):
         self.name = name
-        self.n_replications = n_replications
         self.variants = variants
         self.experiment_dir: Path | None = None
 
-    def run(self, log_dir: Path):
+        if isinstance(n_replications, int):
+            self.n_replications = {
+                variant_name: n_replications for variant_name in variants
+            }
+        elif isinstance(n_replications, dict):
+            for variant_name in variants:
+                assert (
+                    variant_name in n_replications
+                ), f"Missing `n_replications` value for variant `{variant_name}`"
+            self.n_replications = n_replications
+        else:
+            raise ValueError("`n_replications` must be int or dict[str, int]")
+
+    def run(self, log_dir: Path) -> Path:
         # confirm log_dir either does not exist or is a directory
         if Path.exists(log_dir) and not Path.is_dir(log_dir):
             raise ValueError(f"Expected log_dir `{log_dir}` to be a directory")
@@ -37,8 +52,8 @@ class Experiment:
             Path.mkdir(variant_dir)
 
         # run experiment
-        for trial_num in range(self.n_replications):
-            for variant_name, variant_env_producer in self.variants.items():
+        for variant_name, variant_env_producer in self.variants.items():
+            for trial_num in range(self.n_replications[variant_name]):
                 # make directory for trial
                 num_digits = len(str(self.n_replications))
                 trial_dir = (
@@ -64,17 +79,19 @@ class Experiment:
                 filepath = trial_dir / "event_log.json"
                 with open(filepath, "w") as f:
                     f.write(env.serialize_log())
+        return experiment_dir
 
     def experiment_results(
         self,
         trial_metrics_calculator: Callable[
             [EnvState, list[EventUnion]], dict[str, Any]
         ],
+        experiment_dir: Path | None = None,
     ):
-        if not self.experiment_dir:
-            raise Exception(
-                "No value for `experiment_dir`. Confirm that experiment has been run."
-            )
+        experiment_dir = experiment_dir or self.experiment_dir
+        assert (
+            experiment_dir is not None
+        ), "No experiment directory is available. Either run experiment or provide directory with results."
 
         experiment_data = {
             "experiment_name": self.name,
@@ -82,7 +99,7 @@ class Experiment:
         }
 
         for variant_name in experiment_data["variants"]:
-            variant_path = self.experiment_dir / variant_name
+            variant_path = experiment_dir / variant_name
             trial_paths = glob.glob(str(variant_path) + "/trial_*")
 
             for trial_path in trial_paths:
